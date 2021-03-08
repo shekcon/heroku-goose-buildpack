@@ -33,7 +33,7 @@ finished() {
     echo "done"
 }
 
-ver=go1.5.1
+ver=go1.16
 file=${GOFILE:-$ver.$(uname|tr A-Z a-z)-amd64.tar.gz}
 url=https://storage.googleapis.com/golang/$file
 
