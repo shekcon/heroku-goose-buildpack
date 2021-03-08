@@ -107,5 +107,3 @@ cd $p
 
 step "Running: go get $goose"
 go get $goose
-
-rm -rf $build/.heroku
