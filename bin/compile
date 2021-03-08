@@ -5,7 +5,107 @@ set -eo pipefail
 
 mkdir -p "$1" "$2"
 build=$(cd "$1/" && pwd)
-buildpack=$(dirname $(dirname $0))
+cache=$(cd "$2/" && pwd)
+buildpack=$(cd "$(dirname $0)/.." && pwd)
+arch=$(uname -m|tr A-Z a-z)
+if test $arch = x86_64
+then arch=amd64
+fi
+plat=$(uname|tr A-Z a-z)-$arch
+goose=github.com/pressly/goose/cmd/goose
+
+PATH=$buildpack/$plat/bin:$PATH
+steptxt="----->"
+
+warn() {
+    echo >&2 " !     $@"
+}
+
+step() {
+    echo "$steptxt $@"
+}
+
+start() {
+    echo -n "$steptxt $@... "
+}
+
+finished() {
+    echo "done"
+}
+
+ver=go1.5.1
+file=${GOFILE:-$ver.$(uname|tr A-Z a-z)-amd64.tar.gz}
+url=https://storage.googleapis.com/golang/$file
+
+if test -e $build/bin && ! test -d $build/bin
+then
+    warn "File bin exists and is not a directory."
+    exit 1
+fi
+
+if test -d $cache/$ver/go
+then
+    step "Using $ver"
+else
+    rm -rf $cache/* # be sure not to build up cruft
+    mkdir -p $cache/$ver
+    cd $cache/$ver
+    start "Installing $ver"
+        curl -sO $url
+        tar zxf $file
+        rm -f $file
+    finished
+    cd - >/dev/null
+fi
 
 mkdir -p $build/bin
-cp $buildpack/linux-amd64/bin/goose $build/bin
+GOBIN=$build/bin export GOBIN
+GOROOT=$cache/$ver/go export GOROOT
+GOPATH=$build/.heroku/go export GOPATH
+PATH=$GOROOT/bin:$PATH
+
+p=$GOPATH/src/$name
+mkdir -p $p
+cp -R $build/* $p
+
+# Default to $SOURCE_VERSION environment variable
+GO_LINKER_VALUE=${SOURCE_VERSION}
+
+# allow apps to specify cgo flags and set up /app symlink so things like CGO_CFLAGS=-I/app/... work
+env_dir="$3"
+if [ -d "$env_dir" ]
+then
+    ln -sfn $build /app/code
+  for key in CGO_CFLAGS CGO_CPPFLAGS CGO_CXXFLAGS CGO_LDFLAGS GO_LINKER_SYMBOL GO_LINKER_VALUE GO15VENDOREXPERIMENT
+    do
+        if [ -f "$env_dir/$key" ]
+        then
+            export "$key=$(cat "$env_dir/$key")"
+        fi
+    done
+fi
+
+pkgs="./..."
+
+# If $GO_LINKER_SYMBOL and GO_LINKER_VALUE are set, tell the linker to DTRT
+FLAGS=(-tags heroku)
+if [ -n "$GO_LINKER_SYMBOL" -a -n "$GO_LINKER_VALUE" ]
+then
+  case $ver in
+  go1.5*)
+    xval="$GO_LINKER_SYMBOL=$GO_LINKER_VALUE"
+    ;;
+  *)
+    xval="$GO_LINKER_SYMBOL $GO_LINKER_VALUE"
+    ;;
+  esac
+  FLAGS=(${FLAGS[@]} -ldflags "-X $xval")
+fi
+
+unset GIT_DIR # unset git dir or it will mess with goinstall
+cd $p
+
+step "Running: go get $goose"
+go get $goose
+
+rm -rf $build/.heroku
