@@ -1,0 +1,11 @@
+#!/bin/bash
+# usage: bin/compile <build-dir> <cache-dir> <env-dir>
+
+set -eo pipefail
+
+mkdir -p "$1" "$2"
+build=$(cd "$1/" && pwd)
+buildpack=$(dirname $(dirname $0))
+
+mkdir -p $build/bin
+cp $buildpack/linux-amd64/bin/goose $build/bin
